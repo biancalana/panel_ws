@@ -1,6 +1,6 @@
 -- 1 up
 create table if not exists tenant (
-  id SERIAL PRIMARY KEY,
+  uuid  binary(16) PRIMARY KEY NOT NULL,
   name VARCHAR(50) NOT NULL,
   ctime TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   UNIQUE INDEX(name)
@@ -10,30 +10,49 @@ drop table tenant;
 
 
 -- 2 up
+create table if not exists vslb (
+  uuid  binary(16) PRIMARY KEY NOT NULL,
+  name varchar(60) NOT NULL,
+  address varchar(60) NOT NULL,
+  ctime TIMESTAMP,
+  mtime TIMESTAMP,
+  tenant_uuid binary(16) NOT NULL,
+  UNIQUE INDEX (tenant_uuid, name),
+  #UNIQUE INDEX (address),
+  CONSTRAINT fk__vslb__tenant_uuid FOREIGN KEY (tenant_uuid) REFERENCES tenant(uuid)
+);
+-- 2 down
+drop table if exists vslb;
+
+
+-- 3 up
 create table if not exists serverpool (
-  id    SERIAL PRIMARY KEY,
-  tenant_id BIGINT UNSIGNED NOT NULL,
+  uuid  binary(16) PRIMARY KEY NOT NULL,
   name varchar(20) NOT NULL,
   ctime TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   json text NOT NULL,
-  UNIQUE INDEX (tenant_id,name),
-  CONSTRAINT fk-serverpool-tenant_id FOREIGN KEY (tenant_id) REFERENCES tenant(id)
-);
--- 2 down
-drop table if exists vip;
-
--- 3 up
-create table if not exists vip (
-  id    SERIAL PRIMARY KEY,
-  name varchar(60) NOT NULL,
-  tenant_id BIGINT UNSIGNED NOT NULL,
-  serverpool_id BIGINT UNSIGNED NOT NULL,
-  json text NOT NULL,
-  ctime TIMESTAMP,
-  mtime TIMESTAMP,
-  UNIQUE INDEX (tenant_id, name),
-  CONSTRAINT fk-vip-tenant_id FOREIGN KEY (tenant_id) REFERENCES tenant(id),
-  CONSTRAINT fk-vip-serverpool_id FOREIGN KEY (serverpool_id) REFERENCES serverpool(id)
+  tenant_uuid binary(16) NOT NULL,
+  UNIQUE INDEX (tenant_uuid,name),
+  CONSTRAINT fk__serverpool__tenant_uuid FOREIGN KEY (tenant_uuid) REFERENCES tenant(uuid)
 );
 -- 3 down
+drop table if exists serverpool;
+
+
+-- 4 up
+create table if not exists vip (
+  uuid    SERIAL PRIMARY KEY,
+  name  varchar(60) NOT NULL,
+  tenant_uuid binary(16) NOT NULL,
+  vslb_uuid binary(16) NOT NULL,
+  serverpool_uuid binary(16) NOT NULL,
+  json  text NOT NULL,
+  ctime TIMESTAMP,
+  mtime TIMESTAMP,
+  UNIQUE INDEX (tenant_uuid, name),
+  CONSTRAINT fk__vip__tenant_uuid FOREIGN KEY (tenant_uuid) REFERENCES tenant(uuid),
+  CONSTRAINT fk__vip__vslb_uuid FOREIGN KEY (vslb_uuid) REFERENCES vslb(uuid),
+  CONSTRAINT fk__vip__serverpool_uuid FOREIGN KEY (serverpool_uuid) REFERENCES serverpool(uuid)
+);
+-- 4 down
 drop table if exists vip;

@@ -4,6 +4,9 @@ use Mojo::Base 'Mojolicious';
 use PanelWS::Model::ServerPool;
 use PanelWS::Model::Tenant;
 use PanelWS::Model::VIP;
+use PanelWS::Model::VSLB;
+use PanelWS::Util;
+
 use Mojo::mysql;
 
 use Data::Dumper;
@@ -44,10 +47,11 @@ sub startup {
 
 
   # Model
-  $self->helper( mysql      => sub { state $mysql = Mojo::mysql->new('mysql://controller:123mudar@192.168.20.20/nginx-controller') });
-  $self->helper( serverpool => sub { state $serverpool = PanelWS::Model::ServerPool->new(mysql => shift->mysql) });
-  $self->helper( tenant     => sub { state $tenant = PanelWS::Model::Tenant->new(mysql => shift->mysql) });
-  $self->helper( vip        => sub { state $vip = PanelWS::Model::VIP->new(mysql => shift->mysql) });
+  $self->helper( mysql      => sub { state $mysql       = Mojo::mysql->new('mysql://controller:123mudar@192.168.20.20/nginx-controller') });
+  $self->helper( tenant     => sub { state $tenant      = PanelWS::Model::Tenant->new(mysql => shift->mysql) });
+  $self->helper( vslb       => sub { state $vslb        = PanelWS::Model::VSLB->new(mysql => shift->mysql) });
+  $self->helper( serverpool => sub { state $serverpool  = PanelWS::Model::ServerPool->new(mysql => shift->mysql) });
+  $self->helper( vip        => sub { state $vip         = PanelWS::Model::VIP->new(mysql => shift->mysql) });
 
   # Migrate to latest version if necessary
   my $path = $self->home->rel_file('migrations/panel.sql');
@@ -56,7 +60,9 @@ sub startup {
   # Documentation browser under "/perldoc"
   $self->plugin('PODRenderer');
 
+  #
   # Router
+  #
   my $r = $self->routes;
 
   # Normal route to controller
@@ -68,11 +74,12 @@ sub startup {
     #$c->stash(vip_list => []);
   } => 'index');
 
-  #$r->get('/lb/add')->to('lb#add');
 
-  $r->get('/tenant/list')->to('Tenant#list');
-  $r->post('/tenant/add')->to('Tenant#add');
-  $r->get('/tenant/:tenant_id' => [tenant_id => qr/\d+/] => sub {
+  # Tenant
+  $r->delete('/tenants')->to('Tenant#delete');
+  $r->get('/tenants')->to('Tenant#list');
+  $r->post('/tenants')->to('Tenant#add');
+  $r->get('/tenants/:tenant_id' => [tenant_id => qr/\d+/] => sub {
     my $c = shift;
 
     if ( my $tenant = $self->tenant->get_by_id($c->stash('tenant_id')) ) {
@@ -84,16 +91,58 @@ sub startup {
     }
   } => 'tenant_view');
 
-  $r->post('/tenant/:tenant_id/serverpool/add'                    => [tenant_id => qr/\d+/])->to('ServerPool#add');
-  $r->post('/tenant/:tenant_id/serverpool/change/:server_pool_id' => [tenant_id => qr/\d+/, server_pool_id => qr/\d+/])->to('ServerPool#change');
-  $r->get('/tenant/:tenant_id/serverpool/get/:server_pool_id'     => [tenant_id => qr/\d+/, server_pool_id => qr/\d+/])->to('ServerPool#get');
+  # VSLB Routing
+  $r->get('/tenants/:tenant_id/vslbs')->to('VSLB#list');
+  $r->post('/vslbs')->to('VSLB#add');
+  $r->delete('/vslbs/:vslb_id')->to('VSLB#delete');
+  $r->put('/vslbs/:vslb_id')->to('VSLB#change');
+  $r->get('/vslbs/:vslb_id' => [vslb_id => qr/\d+/] => sub {
+    my $c = shift;
 
-  $r->post('/tenant/:tenant_id/vip/add/:serverpool_id'  => [tenant_id => qr/\d+/,  serverpool_id => qr/\d+/])->to('VIP#add');
-  $r->get('/tenant/:tenant_id/vip/list'                 => [tenant_id => qr/\d+/])->to('VIP#list');
-  $r->get('/tenant/:tenant_id/vip/get/:vip_id'          => [tenant_id => qr/\d+/,   vip_id => qr/\d+/])->to('VIP#get');
+    if ( my $tenant = $self->vslb->get_by_id($c->stash('vslb_id')) ) {
+      #$c->stash(tenant_name     => $tenant->{name});
+      #$c->stash(serverpool_list => $self->serverpool->list($c->stash('tenant_id')) || []);
 
-  #$r->post('/serverpool/add')->to('ServerPool#add');
-  #$r->get('/serverpool/get/:name')->to('ServerPool#get');
+    } else {
+      $c->redirect_to('/');
+    }
+  } => 'vslb_view');
+
+  # ServerPool Routing
+  $r->get('/tenants/:tenant_id/servepools')->to('ServerPool#list');
+  $r->post('/serverpools')->to('ServerPool#add');
+  $r->delete('/serverpools/:serverpool_id')->to('ServerPool#delete');
+  $r->put('/serverpools/:serverpool_id')->to('ServerPool#change');
+  $r->get('/serverpools/:serverpool_id' => [serverpool_id => qr/\d+/] => sub {
+    my $c = shift;
+
+    if ( my $tenant = $self->vslb->get_by_id($c->stash('vslb_id')) ) {
+      #$c->stash(tenant_name     => $tenant->{name});
+      #$c->stash(serverpool_list => $self->serverpool->list($c->stash('tenant_id')) || []);
+
+    } else {
+      $c->redirect_to('/');
+    }
+  } => 'serverpool_view');
+
+  # VIP Routing
+  $r->get('/tenants/:tenant_id/vips')->to('VIP#list');
+  $r->post('/vips')->to('VIP#add');
+  $r->delete('/vips/:vip_id')->to('VIP#delete');
+  $r->put('/vips/:vip_id')->to('VIP#change');
+  $r->get('/vips/:vip_id' => [vip_id => qr/\d+/] => sub {
+    my $c = shift;
+
+    if ( my $tenant = $self->vslb->get_by_id($c->stash('vslb_id')) ) {
+      #$c->stash(tenant_name     => $tenant->{name});
+      #$c->stash(serverpool_list => $self->serverpool->list($c->stash('tenant_id')) || []);
+
+    } else {
+      $c->redirect_to('/');
+    }
+  } => 'serverpool_view');
+
+
 }
 
 1;
